@@ -48,9 +48,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Debug middleware to log all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
+  next();
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error:', err.stack);
   res.status(500).json({ 
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : {}
@@ -59,9 +65,20 @@ app.use((err, req, res, next) => {
 
 // 404 handler
 app.use('*', (req, res) => {
+  console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ message: 'Route not found' });
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Available routes:');
+  console.log('- POST /api/auth/register');
+  console.log('- POST /api/auth/login');
+  console.log('- GET /api/auth/me');
+  console.log('- POST /api/towns');
+  console.log('- GET /api/towns/my-towns');
+  console.log('- GET /api/towns/share/:shareId');
+  console.log('- POST /api/stories');
+  console.log('- GET /api/stories/town/:townId/location/:location');
+  console.log('- DELETE /api/stories/:storyId');
 });

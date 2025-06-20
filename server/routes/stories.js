@@ -10,6 +10,9 @@ const router = express.Router();
 // Add story to town
 router.post('/', optionalAuth, async (req, res) => {
   try {
+    console.log('POST /api/stories - Request body:', req.body);
+    console.log('User:', req.user);
+
     const { author, content, location, townId, shareId } = req.body;
 
     if (!author || !content || !location) {
@@ -19,18 +22,25 @@ router.post('/', optionalAuth, async (req, res) => {
     // Find town by ID or shareId
     let town;
     if (townId) {
+      console.log('Finding town by ID:', townId);
       town = await Town.findById(townId);
     } else if (shareId) {
+      console.log('Finding town by shareId:', shareId);
       town = await Town.findOne({ shareId });
     }
 
     if (!town) {
+      console.log('Town not found');
       return res.status(404).json({ message: 'Town not found' });
     }
+
+    console.log('Found town:', town.name);
 
     // Check permissions
     const isOwner = req.user && town.owner.toString() === req.user.userId;
     const isGuest = !req.user || !isOwner;
+
+    console.log('Is owner:', isOwner, 'Is guest:', isGuest);
 
     if (isGuest && !town.allowGuestEntries) {
       return res.status(403).json({ message: 'Guest entries not allowed for this town' });
@@ -39,6 +49,8 @@ router.post('/', optionalAuth, async (req, res) => {
     // Extract themes and analyze sentiment
     const themes = extractThemes(content);
     const sentiment = analyzeSentiment(content);
+
+    console.log('Extracted themes:', themes, 'Sentiment:', sentiment);
 
     // Create story
     const story = new Story({
@@ -52,7 +64,11 @@ router.post('/', optionalAuth, async (req, res) => {
       sentiment
     });
 
+    console.log('Creating story:', story);
+
     await story.save();
+
+    console.log('Story saved successfully');
 
     // Update town stats and regenerate crest/motto
     await updateTownStats(town._id);
@@ -64,10 +80,12 @@ router.post('/', optionalAuth, async (req, res) => {
     
     await town.save();
 
+    console.log('Town updated successfully');
+
     res.status(201).json({ story });
   } catch (error) {
     console.error('Add story error:', error);
-    res.status(500).json({ message: 'Server error adding story' });
+    res.status(500).json({ message: 'Server error adding story', error: error.message });
   }
 });
 

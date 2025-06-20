@@ -63,8 +63,8 @@ const townSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Generate unique share ID
-townSchema.pre('save', function(next) {
+// Generate unique share ID before validation
+townSchema.pre('validate', function(next) {
   if (!this.shareId) {
     this.shareId = Date.now().toString(36) + Math.random().toString(36).substr(2);
   }

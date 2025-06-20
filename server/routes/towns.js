@@ -16,9 +16,13 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Town name is required' });
     }
 
+    // Generate a unique shareId
+    const shareId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
     const town = new Town({
       name: name.trim(),
-      owner: req.user.userId
+      owner: req.user.userId,
+      shareId: shareId
     });
 
     await town.save();

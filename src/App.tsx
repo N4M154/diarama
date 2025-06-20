@@ -40,20 +40,28 @@ function AppContent() {
       }
 
       try {
+        console.log('Loading town data for user:', user.username);
         const response = await townsAPI.getMyTowns();
+        console.log('User towns response:', response);
+        
         if (response.towns.length > 0) {
           // Load the first town
           const town = response.towns[0];
+          console.log('Loading town with shareId:', town.shareId);
           const townResponse = await townsAPI.getTownByShareId(town.shareId);
+          console.log('Town data loaded:', townResponse.town);
           setTownData(townResponse.town);
           setStories(townResponse.stories || []);
         } else {
           // Create a new town
+          console.log('Creating new town for user');
           const newTownResponse = await townsAPI.createTown('My First Town');
+          console.log('New town created:', newTownResponse.town);
           setTownData(newTownResponse.town);
           setStories([]);
         }
       } catch (err: any) {
+        console.error('Error loading town data:', err);
         setError(err.response?.data?.message || 'Failed to load town data');
       } finally {
         setLoading(false);
@@ -77,21 +85,36 @@ function AppContent() {
   };
 
   const handleAddEntry = async (entry: Omit<TownEntry, 'id' | 'timestamp'>) => {
-    if (!townData) return;
+    if (!townData) {
+      console.error('No town data available');
+      setError('No town data available');
+      return;
+    }
 
     try {
-      const response = await storiesAPI.addStory({
+      console.log('Adding story to town:', townData.name, 'with ID:', townData.id);
+      console.log('Story data:', entry);
+
+      const storyData = {
         author: entry.author,
         content: entry.content,
         location: entry.location,
-        townId: townData.id,
-      });
+        townId: townData.id, // Make sure we're sending the town ID
+      };
+
+      console.log('Sending story data to API:', storyData);
+
+      const response = await storiesAPI.addStory(storyData);
+      console.log('Story added successfully:', response);
 
       // Reload town data to get updated crest and motto
       const townResponse = await townsAPI.getTownByShareId(townData.shareId);
       setTownData(townResponse.town);
       setStories(townResponse.stories || []);
+      
+      console.log('Town data refreshed after adding story');
     } catch (err: any) {
+      console.error('Error adding story:', err);
       setError(err.response?.data?.message || 'Failed to add story');
     }
   };
@@ -214,7 +237,10 @@ function AppContent() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
             <p className="text-red-700">{error}</p>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                setError('');
+                window.location.reload();
+              }}
               className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
             >
               Try Again

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Map, BookOpen, Share, Scroll } from 'lucide-react';
+import { Plus, Map, BookOpen, Share, Scroll, LogIn, User, LogOut } from 'lucide-react';
 import type { TownData, TownEntry } from './types/town';
 import { TownMap } from './components/TownMap';
 import { TownCrest } from './components/TownCrest';
 import { StoryEntry } from './components/StoryEntry';
 import { LocationStories } from './components/LocationStories';
-import { saveTownData, loadTownData, generateTownId } from './utils/storage';
-import { generateTownCrest } from './utils/crestGenerator';
-import { generateTownMotto } from './utils/textAnalysis';
+import { AuthModal } from './components/Auth/AuthModal';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { townsAPI, storiesAPI } from './services/api';
 
 // Default town locations mapping
 const LOCATION_NAMES: Record<string, string> = {
@@ -19,37 +19,55 @@ const LOCATION_NAMES: Record<string, string> = {
   'theater': 'Theater',
 };
 
-function App() {
+function AppContent() {
+  const { user, logout, loading: authLoading } = useAuth();
   const [townData, setTownData] = useState<TownData | null>(null);
+  const [stories, setStories] = useState<TownEntry[]>([]);
   const [showStoryEntry, setShowStoryEntry] = useState(false);
   const [showLocationStories, setShowLocationStories] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [currentView, setCurrentView] = useState<'map' | 'crest'>('map');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Initialize or load town data
+  // Load user's first town or create a new one
   useEffect(() => {
-    const saved = loadTownData();
-    if (saved) {
-      setTownData(saved);
-    } else {
-      // Create new town
-      const newTown: TownData = {
-        id: generateTownId(),
-        name: 'New Town',
-        entries: [],
-        crest: generateTownCrest([]),
-        motto: generateTownMotto([]),
-        createdAt: Date.now(),
-        lastUpdated: Date.now(),
-      };
-      setTownData(newTown);
-      saveTownData(newTown);
+    const loadTownData = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await townsAPI.getMyTowns();
+        if (response.towns.length > 0) {
+          // Load the first town
+          const town = response.towns[0];
+          const townResponse = await townsAPI.getTownByShareId(town.shareId);
+          setTownData(townResponse.town);
+          setStories(townResponse.stories || []);
+        } else {
+          // Create a new town
+          const newTownResponse = await townsAPI.createTown('My First Town');
+          setTownData(newTownResponse.town);
+          setStories([]);
+        }
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to load town data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!authLoading) {
+      loadTownData();
     }
-  }, []);
+  }, [user, authLoading]);
 
   const handleLocationClick = (locationId: string) => {
     setSelectedLocation(locationId);
-    const locationEntries = townData?.entries.filter(e => e.location === locationId) || [];
+    const locationEntries = stories.filter(e => e.location === locationId) || [];
     
     if (locationEntries.length > 0) {
       setShowLocationStories(true);
@@ -58,45 +76,161 @@ function App() {
     }
   };
 
-  const handleAddEntry = (entry: TownEntry) => {
+  const handleAddEntry = async (entry: Omit<TownEntry, 'id' | 'timestamp'>) => {
     if (!townData) return;
 
-    const updatedEntries = [...townData.entries, entry];
-    const updatedTownData: TownData = {
-      ...townData,
-      entries: updatedEntries,
-      crest: generateTownCrest(updatedEntries),
-      motto: generateTownMotto(updatedEntries),
-      lastUpdated: Date.now(),
-    };
+    try {
+      const response = await storiesAPI.addStory({
+        author: entry.author,
+        content: entry.content,
+        location: entry.location,
+        townId: townData.id,
+      });
 
-    setTownData(updatedTownData);
-    saveTownData(updatedTownData);
-  };
-
-  const handleChangeTownName = () => {
-    if (!townData) return;
-    
-    const newName = prompt('Enter a new name for your town:', townData.name);
-    if (newName && newName.trim() !== townData.name) {
-      const updatedTownData = {
-        ...townData,
-        name: newName.trim(),
-        lastUpdated: Date.now(),
-      };
-      setTownData(updatedTownData);
-      saveTownData(updatedTownData);
+      // Reload town data to get updated crest and motto
+      const townResponse = await townsAPI.getTownByShareId(townData.shareId);
+      setTownData(townResponse.town);
+      setStories(townResponse.stories || []);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to add story');
     }
   };
 
-  const selectedLocationEntries = townData?.entries.filter(e => e.location === selectedLocation) || [];
+  const handleChangeTownName = async () => {
+    if (!townData || !user) return;
+    
+    const newName = prompt('Enter a new name for your town:', townData.name);
+    if (newName && newName.trim() !== townData.name) {
+      try {
+        const response = await townsAPI.updateTown(townData.id, {
+          name: newName.trim(),
+        });
+        setTownData(response.town);
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to update town name');
+      }
+    }
+  };
+
+  const selectedLocationEntries = stories.filter(e => e.location === selectedLocation) || [];
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-green-50 flex items-center justify-center">
+        <div className="text-center">
+          <Scroll className="mx-auto mb-4 text-amber-600" size={48} />
+          <p className="text-lg text-gray-600">Loading your town chronicle...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-green-50">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-sm border-b border-amber-200">
+          <div className="max-w-6xl mx-auto px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Scroll className="text-amber-600" size={32} />
+                <div>
+                  <h1 className="text-2xl font-serif font-bold text-gray-900">
+                    Tiny Town Chronicle
+                  </h1>
+                  <p className="text-sm text-gray-600">
+                    Build your town through stories
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="flex items-center gap-2 bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors"
+              >
+                <LogIn size={20} />
+                Sign In
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Welcome Content */}
+        <main className="max-w-4xl mx-auto px-4 py-16 text-center">
+          <div className="mb-8">
+            <Scroll className="mx-auto mb-6 text-amber-600" size={64} />
+            <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
+              Welcome to Tiny Town Chronicle
+            </h2>
+            <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+              Create unique text-based towns by writing stories about fictional townsfolk. 
+              Each story shapes your town's identity and unlocks special crests.
+            </p>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="bg-amber-600 text-white px-8 py-3 rounded-lg hover:bg-amber-700 transition-colors text-lg font-medium"
+            >
+              Start Your Chronicle
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8 mt-16">
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-amber-200">
+              <BookOpen className="mx-auto mb-4 text-amber-600" size={48} />
+              <h3 className="text-xl font-serif font-semibold mb-2">Write Stories</h3>
+              <p className="text-gray-600">
+                Create short entries about fictional townsfolk and their daily lives
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-amber-200">
+              <Map className="mx-auto mb-4 text-amber-600" size={48} />
+              <h3 className="text-xl font-serif font-semibold mb-2">Build Your Town</h3>
+              <p className="text-gray-600">
+                Watch your town grow as stories are linked to different locations
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-amber-200">
+              <Share className="mx-auto mb-4 text-amber-600" size={48} />
+              <h3 className="text-xl font-serif font-semibold mb-2">Share & Collaborate</h3>
+              <p className="text-gray-600">
+                Share your town with others and let them add their own stories
+              </p>
+            </div>
+          </div>
+        </main>
+
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+        />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-green-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
+            <p className="text-red-700">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!townData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-green-50 flex items-center justify-center">
         <div className="text-center">
           <Scroll className="mx-auto mb-4 text-amber-600" size={48} />
-          <p className="text-lg text-gray-600">Loading your town chronicle...</p>
+          <p className="text-lg text-gray-600">Setting up your town...</p>
         </div>
       </div>
     );
@@ -120,7 +254,7 @@ function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
               {/* View Toggle */}
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
@@ -147,10 +281,20 @@ function App() {
                 </button>
               </div>
 
-              {/* Share Button (placeholder for future) */}
-              <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-white/80 rounded-lg transition-colors">
-                <Share size={20} />
-              </button>
+              {/* User Menu */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <User size={16} />
+                  <span>{user.username}</span>
+                </div>
+                <button
+                  onClick={logout}
+                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-white/80 rounded-lg transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut size={20} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -189,13 +333,13 @@ function App() {
                 </div>
 
                 <TownMap
-                  townData={townData}
+                  townData={{...townData, entries: stories}}
                   onLocationClick={handleLocationClick}
                   selectedLocation={selectedLocation}
                 />
               </div>
             ) : (
-              <TownCrest townData={townData} />
+              <TownCrest townData={{...townData, entries: stories}} />
             )}
           </div>
 
@@ -209,18 +353,18 @@ function App() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Stories told:</span>
-                  <span className="font-medium">{townData.entries.length}</span>
+                  <span className="font-medium">{stories.length}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Locations with stories:</span>
                   <span className="font-medium">
-                    {new Set(townData.entries.map(e => e.location)).size}
+                    {new Set(stories.map(e => e.location)).size}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Contributors:</span>
                   <span className="font-medium">
-                    {new Set(townData.entries.map(e => e.author)).size}
+                    {new Set(stories.map(e => e.author)).size}
                   </span>
                 </div>
               </div>
@@ -231,13 +375,13 @@ function App() {
               <h3 className="font-serif font-semibold text-gray-900 mb-3">
                 Recent Stories
               </h3>
-              {townData.entries.length === 0 ? (
+              {stories.length === 0 ? (
                 <p className="text-sm text-gray-500 italic">
                   No stories yet. Start chronicling your town!
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {townData.entries
+                  {stories
                     .sort((a, b) => b.timestamp - a.timestamp)
                     .slice(0, 3)
                     .map((entry) => (
@@ -302,6 +446,14 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
